@@ -28,8 +28,17 @@ on:
         type: string
 permissions:
   contents: read
+env:
+  RELEASE_MODE: ${{ inputs.mode }}
+  RELEASE_TAG: ${{ inputs.tag }}
+  SETUP_SHA256: ${{ inputs.setup_sha256 }}
+  EXE_SHA256: ${{ inputs.exe_sha256 }}
+  PACKAGE_SHA512: ${{ inputs.package_sha512 }}
 jobs:
-  smoke:
+  draft:
+    if: inputs.mode == 'draft'
+    permissions:
+      contents: write
     runs-on: windows-latest
     timeout-minutes: 45
     steps:
@@ -40,9 +49,17 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_MODE: ${{ inputs.mode }}
-          RELEASE_TAG: ${{ inputs.tag }}
-          SETUP_SHA256: ${{ inputs.setup_sha256 }}
-          EXE_SHA256: ${{ inputs.exe_sha256 }}
-          PACKAGE_SHA512: ${{ inputs.package_sha512 }}
+        run: ./scripts/smoke.ps1
+  live:
+    if: inputs.mode == 'live'
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Install release and check the app
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: ./scripts/smoke.ps1
