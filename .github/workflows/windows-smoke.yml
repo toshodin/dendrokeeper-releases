@@ -2,8 +2,16 @@ name: Windows release smoke
 on:
   workflow_dispatch:
     inputs:
+      mode:
+        description: Release state and installer path to check
+        type: choice
+        required: true
+        default: draft
+        options:
+          - draft
+          - live
       tag:
-        description: Draft release tag, for example v0.1.0
+        description: Release tag, for example v0.1.0
         required: true
         type: string
       setup_sha256:
@@ -15,7 +23,7 @@ on:
         required: true
         type: string
       package_sha512:
-        description: Assembled package SHA-512 in hex, required when parts exist
+        description: Draft package SHA-512 in hex, required when package assets exist
         required: false
         type: string
 permissions:
@@ -28,10 +36,11 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
-      - name: Install draft assets and check the app
+      - name: Install release and check the app
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_MODE: ${{ inputs.mode }}
           RELEASE_TAG: ${{ inputs.tag }}
           SETUP_SHA256: ${{ inputs.setup_sha256 }}
           EXE_SHA256: ${{ inputs.exe_sha256 }}

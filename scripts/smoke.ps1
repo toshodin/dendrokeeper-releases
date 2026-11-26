@@ -1,4 +1,6 @@
 $ErrorActionPreference = 'Stop'
+$mode = $env:RELEASE_MODE
+if ($mode -cnotin @('draft', 'live')) { throw 'Mode must be draft or live.' }
 $tag = $env:RELEASE_TAG
 if ($tag -cnotmatch '^v(\d+)\.(\d+)\.(\d+)$') { throw 'Tag must look like v0.1.0.' }
 $version = "$($Matches[1]).$($Matches[2]).$($Matches[3]).0"
@@ -7,15 +9,15 @@ foreach ($entry in @(@('setup', $env:SETUP_SHA256, 64), @('executable', $env:EXE
 }
 $release = gh release view $tag --repo toshodin/dendrokeeper-releases --json isDraft,tagName,assets | ConvertFrom-Json
 if ($LASTEXITCODE -ne 0) { throw 'Could not retrieve the release.' }
-if (-not $release.isDraft -or $release.tagName -cne $tag) { throw 'The tag must identify a draft release.' }
+if ($release.tagName -cne $tag -or ($mode -ceq 'draft' -and -not $release.isDraft) -or ($mode -ceq 'live' -and $release.isDraft)) { throw "The tag must identify a $mode release." }
 $assets = @($release.assets)
 $setup = "DendroKeeper-$version-win-x64-setup.exe"
 $base = "DendroKeeper-$version-win-x64.7z"
 $parts = @($assets | Where-Object { $_.name -cmatch ('^' + [regex]::Escape($base) + '\.part\d{3}$') } | Sort-Object name)
 $wholePackage = @($assets | Where-Object { $_.name -ceq $base })
-if ($wholePackage.Count -gt 1 -or ($wholePackage.Count -gt 0 -and $parts.Count -gt 0)) { throw 'Expected one package format.' }
-if (($parts.Count -gt 0 -or $wholePackage.Count -gt 0) -and $env:PACKAGE_SHA512 -notmatch '^[0-9a-fA-F]{128}$') { throw 'A package SHA-512 is required when parts are present.' }
-for ($i = 0; $i -lt $parts.Count; $i++) {
+if ($mode -ceq 'draft' -and ($wholePackage.Count -gt 1 -or ($wholePackage.Count -gt 0 -and $parts.Count -gt 0))) { throw 'Expected one package format.' }
+if ($mode -ceq 'draft' -and ($parts.Count -gt 0 -or $wholePackage.Count -gt 0) -and $env:PACKAGE_SHA512 -notmatch '^[0-9a-fA-F]{128}$') { throw 'A package SHA-512 is required when parts are present.' }
+for ($i = 0; $mode -ceq 'draft' -and $i -lt $parts.Count; $i++) {
     if ($parts[$i].name -cne ("$base.part{0:D3}" -f ($i + 1))) { throw 'Package parts are not contiguous from part001.' }
 }
 $dir = Join-Path $env:RUNNER_TEMP 'dendro-release-smoke'
@@ -25,7 +27,11 @@ function Download-Asset([string] $name) {
     gh release download $tag --repo toshodin/dendrokeeper-releases --pattern $name --dir $dir
     if ($LASTEXITCODE -ne 0) { throw "Download failed: $name." }
 }
-Download-Asset $setup
+if ($mode -ceq 'draft') {
+    Download-Asset $setup
+} else {
+    Invoke-WebRequest -Uri 'https://dendro-keeper.com/downloads/windows-setup' -OutFile (Join-Path $dir $setup) -TimeoutSec 300
+}
 Download-Asset 'SHA256SUMS.txt'
 $manifest = Get-Content -LiteralPath (Join-Path $dir 'SHA256SUMS.txt')
 function Assert-Manifest([string] $name, [string] $expected) {
@@ -35,7 +41,9 @@ function Assert-Manifest([string] $name, [string] $expected) {
 Assert-Manifest $setup $env:SETUP_SHA256
 if ((Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $dir $setup)).Hash -ine $env:SETUP_SHA256) { throw 'Setup checksum mismatch.' }
 $arguments = @('/S')
-if ($wholePackage.Count -gt 0) {
+if ($mode -ceq 'live') {
+    Write-Host 'Running the published setup with its configured package download.'
+} elseif ($wholePackage.Count -gt 0) {
     Download-Asset $base
     $packagePath = Join-Path $dir $base
     if ((Get-FileHash -Algorithm SHA512 -LiteralPath $packagePath).Hash -ine $env:PACKAGE_SHA512) { throw 'Package checksum mismatch.' }
