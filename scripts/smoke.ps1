@@ -65,12 +65,15 @@ if ($mode -ceq 'live') {
     Write-Host 'No package parts found. Setup will use its configured download.'
 }
 Remove-Item Env:GH_TOKEN
-$install = Join-Path $dir 'install'
 $setupPath = Join-Path $dir $setup
-$arguments += "/D=$install"
 $installer = Start-Process -FilePath $setupPath -ArgumentList $arguments -Wait -PassThru -WindowStyle Hidden
 if ($installer.ExitCode -ne 0) { throw "Setup failed with exit code $($installer.ExitCode)." }
-$exe = Join-Path $install 'DendroKeeper.exe'
+$menu = [Environment]::GetFolderPath('Programs')
+$links = @(Get-ChildItem -LiteralPath $menu -Recurse -File -Filter 'Dendro Keeper.lnk')
+if ($links.Count -ne 1) { throw "Expected one per-user Start menu shortcut, found $($links.Count)." }
+$shell = New-Object -ComObject WScript.Shell
+$exe = $shell.CreateShortcut($links[0].FullName).TargetPath
+if ([IO.Path]::GetFileName($exe) -ine 'DendroKeeper.exe') { throw 'Unexpected Start menu target.' }
 if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) { throw "Installed executable missing: $exe" }
 if ((Get-FileHash -Algorithm SHA256 -LiteralPath $exe).Hash -ine $env:EXE_SHA256) { throw 'Installed executable checksum mismatch.' }
 $env:MEETING_CAPTURE_HOME = Join-Path $dir 'home'
