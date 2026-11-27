@@ -4,6 +4,7 @@ $oldSetupHash = '37c8153126a2eaeb079f31e16a63297d66e84297a2f33c557212c462c5e34a9
 $oldPackageHash = '60298757acd8c5915dce5d236f2e27e5c9b2ff83bb57b4e343569c8ee277c3dd'
 $oldExeHash = '49ce280d61790d40654267b9796a5f9cc2b5765021db61bd920706889606c82a'
 $syntheticHome = Join-Path $dir 'synthetic-data'
+$customNotes = Join-Path $dir 'custom-notes'
 $pointer = Join-Path $env:USERPROFILE '.dendro-keeper-folder'
 $env:MEETING_CAPTURE_FAKE_CONTROL = Join-Path $dir 'control'
 $env:MEETING_CAPTURE_FAKES = '1'
@@ -37,7 +38,7 @@ function Test-PreviousData([string] $executable) {
         $meetings = Invoke-RestMethod -Uri "$origin/api/meetings" -Headers $headers -TimeoutSec 10
         if (@($meetings.meetings | Where-Object { $_.id -ceq '2026-11-20_090000_000' -and $_.title -ceq 'Synthetic upgrade meeting' }).Count -ne 1) { throw 'Synthetic meeting is not visible.' }
         $settings = Invoke-RestMethod -Uri "$origin/api/settings" -Headers $headers -TimeoutSec 10
-        if ($settings.retention_days -ne 12 -or $settings.recordings_in_use -ine (Join-Path $syntheticHome 'recordings')) { throw 'Existing settings or data pointer were not used.' }
+        if ($settings.delivery_folder -ine $customNotes -or $settings.retention_days -ne 12 -or $settings.recordings_in_use -ine (Join-Path $syntheticHome 'recordings')) { throw 'Existing settings or data pointer were not used.' }
         $models = Invoke-RestMethod -Uri "$origin/api/models" -Headers $headers -TimeoutSec 10
         if (@($models.endpoints | Where-Object { $_.id -ceq 'local' -and $_.model -ceq 'synthetic-model' }).Count -ne 1) { throw 'Existing model settings were not used.' }
         if ((Get-Content -LiteralPath (Join-Path $env:HF_HOME 'model-sentinel.txt') -Raw).Trim() -cne 'synthetic model cache') { throw 'Model cache sentinel changed.' }
@@ -62,7 +63,7 @@ function Install-PreviousRelease {
     if ($link.Count -ne 1) { throw 'Previous shortcut missing or ambiguous.' }
     $script:oldExe = (New-Object -ComObject WScript.Shell).CreateShortcut($link[0].FullName).TargetPath
     if ((Get-FileHash -Algorithm SHA256 $script:oldExe).Hash -ine $oldExeHash) { throw 'Previous executable checksum mismatch.' }
-    New-Item -ItemType Directory -Force -Path $syntheticHome, $env:MEETING_CAPTURE_FAKE_CONTROL, (Join-Path $syntheticHome 'recordings/2026-11-20_090000_000'), (Join-Path $syntheticHome 'outbox/synthetic/2026-11-20-synthetic-upgrade-meeting') | Out-Null
+    New-Item -ItemType Directory -Force -Path $syntheticHome, $env:MEETING_CAPTURE_FAKE_CONTROL, (Join-Path $syntheticHome 'recordings/2026-11-20_090000_000'), (Join-Path $customNotes 'meetings/2026-11-20-synthetic-upgrade-meeting') | Out-Null
     $env:HF_HOME = Join-Path $dir 'synthetic-models'
     New-Item -ItemType Directory -Path $env:HF_HOME | Out-Null
     [IO.File]::WriteAllText((Join-Path $env:HF_HOME 'model-sentinel.txt'), 'synthetic model cache')
@@ -70,7 +71,7 @@ function Install-PreviousRelease {
     [IO.File]::WriteAllText((Join-Path $env:MEETING_CAPTURE_FAKE_CONTROL 'calendar.json'), '{"items":[]}')
     [IO.File]::WriteAllText((Join-Path $syntheticHome 'recordings/2026-11-20_090000_000/meeting.json'), '{"title":"Synthetic upgrade meeting","source":"unsorted"}')
     [IO.File]::WriteAllText((Join-Path $syntheticHome 'recordings/2026-11-20_090000_000/filed.json'), '{"folder":"2026-11-20-synthetic-upgrade-meeting"}')
-    [IO.File]::WriteAllText((Join-Path $syntheticHome 'outbox/synthetic/2026-11-20-synthetic-upgrade-meeting/summary.md'), 'Synthetic summary')
+    [IO.File]::WriteAllText((Join-Path $customNotes 'meetings/2026-11-20-synthetic-upgrade-meeting/summary.md'), 'Synthetic summary')
     $config = @'
 contributor = "synthetic"
 user_names = ["Synthetic"]
@@ -89,12 +90,14 @@ screenshots = "local"
 [calendar]
 client_file = ""
 [delivery]
+folder = __NOTES__
 host = ""
 root = ""
 [unsorted]
 folder = "synthetic"
 action_log = "synthetic/actions.md"
 '@
+    $config = $config.Replace('__NOTES__', (ConvertTo-Json -InputObject $customNotes -Compress))
     [IO.File]::WriteAllText((Join-Path $syntheticHome 'config.local.toml'), $config)
     Test-PreviousData $script:oldExe
 }
