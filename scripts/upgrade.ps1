@@ -63,7 +63,8 @@ function Install-PreviousRelease {
     Invoke-WebRequest -Uri 'https://dendro-keeper.com/downloads/v0.1.0/DendroKeeper-0.1.0.0-win-x64.7z' -OutFile $oldPackage -TimeoutSec 900
     if ((Get-FileHash -Algorithm SHA256 $oldPackage).Hash -ine $oldPackageHash) { throw 'Previous package checksum mismatch.' }
     if ((Invoke-Setup $oldSetup $oldPackage) -ne 0) { throw 'Previous setup failed.' }
-    Remove-Item -LiteralPath $oldSetup, $oldPackage
+    Remove-Item -LiteralPath $oldSetup
+    if (Test-Path -LiteralPath $oldPackage) { Remove-Item -LiteralPath $oldPackage }
     $link = @(Get-ChildItem -LiteralPath ([Environment]::GetFolderPath('Programs')) -Recurse -File -Filter 'Dendro Keeper.lnk')
     if ($link.Count -ne 1) { throw 'Previous shortcut missing or ambiguous.' }
     $script:oldLink = $link[0].FullName
