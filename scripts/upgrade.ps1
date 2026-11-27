@@ -7,6 +7,7 @@ $syntheticHome = Join-Path $dir 'synthetic-data'
 $pointer = Join-Path $env:USERPROFILE '.dendro-keeper-folder'
 $env:MEETING_CAPTURE_FAKE_CONTROL = Join-Path $dir 'control'
 $env:MEETING_CAPTURE_FAKES = '1'
+$env:MEETING_CAPTURE_INSTANCE = 'CallToMindUpgradeSmoke'
 $env:MEETING_CAPTURE_FAKE_EVENT_PORT = '0'
 Remove-Item Env:MEETING_CAPTURE_HOME -ErrorAction SilentlyContinue
 
@@ -51,9 +52,7 @@ function Install-PreviousRelease {
     if (Test-Path -LiteralPath $pointer) { throw 'Runner profile already has a data pointer.' }
     $oldSetup = Join-Path $dir 'previous-setup.exe'
     $oldPackage = Join-Path $dir 'previous.7z'
-    gh release download v0.1.0 --repo toshodin/dendrokeeper-releases --pattern 'DendroKeeper-0.1.0.0-win-x64-setup.exe' --dir $dir
-    if ($LASTEXITCODE -ne 0) { throw 'Previous setup download failed.' }
-    Move-Item -LiteralPath (Join-Path $dir 'DendroKeeper-0.1.0.0-win-x64-setup.exe') -Destination $oldSetup
+    Invoke-WebRequest -Uri 'https://github.com/toshodin/dendrokeeper-releases/releases/download/v0.1.0/DendroKeeper-0.1.0.0-win-x64-setup.exe' -OutFile $oldSetup -TimeoutSec 180
     if ((Get-FileHash -Algorithm SHA256 $oldSetup).Hash -ine $oldSetupHash) { throw 'Previous setup checksum mismatch.' }
     Invoke-WebRequest -Uri 'https://dendro-keeper.com/downloads/v0.1.0/DendroKeeper-0.1.0.0-win-x64.7z' -OutFile $oldPackage -TimeoutSec 900
     if ((Get-FileHash -Algorithm SHA256 $oldPackage).Hash -ine $oldPackageHash) { throw 'Previous package checksum mismatch.' }

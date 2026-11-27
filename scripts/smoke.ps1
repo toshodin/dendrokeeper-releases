@@ -43,7 +43,6 @@ function Assert-Manifest([string] $name, [string] $expected) {
 Assert-Manifest $setup $env:SETUP_SHA256
 if ((Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $dir $setup)).Hash -ine $env:SETUP_SHA256) { throw 'Setup checksum mismatch.' }
 $upgrade = $mode -ceq 'draft' -and $tag -cne 'v0.1.0'
-if ($upgrade) { . "$PSScriptRoot/upgrade.ps1"; Install-PreviousRelease }
 $arguments = @('/S')
 if ($mode -ceq 'live') {
     Write-Host 'Running the published setup with its configured package download.'
@@ -68,8 +67,12 @@ if ($mode -ceq 'live') {
 } else {
     Write-Host 'No package parts found. Setup will use its configured download.'
 }
-if ($upgrade) { Test-CorruptUpgrade (Join-Path $dir $setup) }
 Remove-Item Env:GH_TOKEN
+if ($upgrade) {
+    . "$PSScriptRoot/upgrade.ps1"
+    Install-PreviousRelease
+    Test-CorruptUpgrade (Join-Path $dir $setup)
+}
 $setupPath = Join-Path $dir $setup
 $installer = Start-Process -FilePath $setupPath -ArgumentList $arguments -Wait -PassThru -WindowStyle Hidden
 if ($installer.ExitCode -ne 0) { throw "Setup failed with exit code $($installer.ExitCode)." }
