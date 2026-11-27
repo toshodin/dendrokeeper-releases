@@ -5,6 +5,8 @@ $oldPackageHash = '60298757acd8c5915dce5d236f2e27e5c9b2ff83bb57b4e343569c8ee277c
 $oldExeHash = '49ce280d61790d40654267b9796a5f9cc2b5765021db61bd920706889606c82a'
 $syntheticHome = Join-Path $dir 'synthetic-data'
 $customNotes = Join-Path $dir 'custom-notes'
+$credentialTarget = 'model-key:local@meeting-capture'
+$notePath = Join-Path $customNotes 'meetings/2026-11-20-synthetic-upgrade-meeting/summary.md'
 $pointer = Join-Path $env:USERPROFILE '.dendro-keeper-folder'
 $env:MEETING_CAPTURE_FAKE_CONTROL = Join-Path $dir 'control'
 $env:MEETING_CAPTURE_FAKES = '1'
@@ -18,6 +20,9 @@ function Invoke-Setup([string] $file, [string] $package) {
 }
 
 function Test-PreviousData([string] $executable) {
+    $credential = cmdkey.exe "/list:$credentialTarget" | Out-String
+    if ($LASTEXITCODE -ne 0 -or -not $credential.Contains($credentialTarget) -or -not $credential.Contains('User: model-key:local')) { throw 'Synthetic Windows model credential missing.' }
+    if ([IO.File]::ReadAllText($notePath) -cne 'Synthetic summary') { throw 'The custom meeting note changed.' }
     $addressFile = Join-Path $syntheticHome 'window-url.txt'
     Remove-Item -LiteralPath $addressFile -ErrorAction SilentlyContinue
     $app = Start-Process -FilePath $executable -PassThru -WindowStyle Hidden
@@ -71,7 +76,9 @@ function Install-PreviousRelease {
     [IO.File]::WriteAllText((Join-Path $env:MEETING_CAPTURE_FAKE_CONTROL 'calendar.json'), '{"items":[]}')
     [IO.File]::WriteAllText((Join-Path $syntheticHome 'recordings/2026-11-20_090000_000/meeting.json'), '{"title":"Synthetic upgrade meeting","source":"unsorted"}')
     [IO.File]::WriteAllText((Join-Path $syntheticHome 'recordings/2026-11-20_090000_000/filed.json'), '{"folder":"2026-11-20-synthetic-upgrade-meeting"}')
-    [IO.File]::WriteAllText((Join-Path $customNotes 'meetings/2026-11-20-synthetic-upgrade-meeting/summary.md'), 'Synthetic summary')
+    [IO.File]::WriteAllText($notePath, 'Synthetic summary')
+    cmdkey.exe "/generic:$credentialTarget" /user:model-key:local /pass:synthetic-upgrade-test
+    if ($LASTEXITCODE -ne 0) { throw 'Could not seed synthetic Windows credential.' }
     $config = @'
 contributor = "synthetic"
 user_names = ["Synthetic"]
