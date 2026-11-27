@@ -89,7 +89,7 @@ if ((Get-FileHash -Algorithm SHA256 -LiteralPath $exe).Hash -ine $env:EXE_SHA256
 if ($upgrade) {
     $alias = Join-Path (Split-Path $exe) 'DendroKeeper.exe'
     if (-not (Test-Path -LiteralPath $alias -PathType Leaf)) { throw 'Compatibility executable missing.' }
-    Test-PreviousData $exe
+    Test-PreviousData $exe -workspace:($tag -ceq 'v0.1.2')
     return
 }
 $env:MEETING_CAPTURE_HOME = Join-Path $dir 'home'

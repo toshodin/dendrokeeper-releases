@@ -3,6 +3,17 @@ if ($env:GITHUB_ACTIONS -cne 'true' -or $env:RUNNER_ENVIRONMENT -cne 'github-hos
 $oldSetupHash = '37c8153126a2eaeb079f31e16a63297d66e84297a2f33c557212c462c5e34a93'
 $oldPackageHash = '60298757acd8c5915dce5d236f2e27e5c9b2ff83bb57b4e343569c8ee277c3dd'
 $oldExeHash = '49ce280d61790d40654267b9796a5f9cc2b5765021db61bd920706889606c82a'
+$oldSetupUrl = 'https://github.com/toshodin/dendrokeeper-releases/releases/download/v0.1.0/DendroKeeper-0.1.0.0-win-x64-setup.exe'
+$oldPackageUrl = 'https://dendro-keeper.com/downloads/v0.1.0/DendroKeeper-0.1.0.0-win-x64.7z'
+$oldShortcut = 'Dendro Keeper.lnk'
+if ($tag -ceq 'v0.1.2') {
+    $oldSetupUrl = 'https://github.com/toshodin/dendrokeeper-releases/releases/download/v0.1.1/CallToMind-0.1.1.0-win-x64-setup.exe'
+    $oldPackageUrl = 'https://calltomind.app/downloads/v0.1.1/CallToMind-0.1.1.0-win-x64.7z'
+    $oldSetupHash = 'd32dec1942ab93988bd752a851f35cf4d9511cdf8c442bca19969dd47ae85f85'
+    $oldPackageHash = '5af0901b7ca27ad3dfcffc1ddf97ee5cc47c8fb4b117d04c6c7f4a5aab1e0bd0'
+    $oldExeHash = 'f9d9c1a13307f6b4877709b874122d01ce0af7fbba723870bfad293d9365ffb8'
+    $oldShortcut = 'Call to Mind.lnk'
+} elseif ($tag -cne 'v0.1.1') { throw 'Select and pin the previous release before running this upgrade.' }
 $syntheticHome = Join-Path $dir 'synthetic-data'
 $customNotes = Join-Path $dir 'custom-notes'
 $credentialTarget = 'model-key:local@meeting-capture'
@@ -19,7 +30,7 @@ function Invoke-Setup([string] $file, [string] $package) {
     return $process.ExitCode
 }
 
-function Test-PreviousData([string] $executable) {
+function Test-PreviousData([string] $executable, [switch] $workspace) {
     $credential = cmdkey.exe "/list:$credentialTarget" | Out-String
     if ($LASTEXITCODE -ne 0 -or -not $credential.Contains($credentialTarget) -or -not $credential.Contains('User: model-key:local')) { throw 'Synthetic Windows model credential missing.' }
     if ([IO.File]::ReadAllText($notePath) -cne 'Synthetic summary') { throw 'The custom meeting note changed.' }
@@ -47,6 +58,21 @@ function Test-PreviousData([string] $executable) {
         $models = Invoke-RestMethod -Uri "$origin/api/models" -Headers $headers -TimeoutSec 10
         if (@($models.endpoints | Where-Object { $_.id -ceq 'local' -and $_.model -ceq 'synthetic-model' }).Count -ne 1) { throw 'Existing model settings were not used.' }
         if ((Get-Content -LiteralPath (Join-Path $env:HF_HOME 'model-sentinel.txt') -Raw).Trim() -cne 'synthetic model cache') { throw 'Model cache sentinel changed.' }
+        if ($workspace) {
+            $uri = "$origin/api/workspace"
+            $scope = (Invoke-RestMethod -Uri $uri -Headers $headers).engagements
+            if (@($scope).Count -ne 1) { throw 'Expected one Solo engagement.' }
+            $projectName = 'Synthetic upgrade project'
+            $body = @{action='add_project'; engagement=$scope[0].id; name=$projectName} | ConvertTo-Json
+            $created = Invoke-RestMethod -Method Post -Uri $uri -Headers $headers -ContentType 'application/json' -Body $body
+            $projects = (Invoke-RestMethod -Uri $uri -Headers $headers).engagements[0].projects
+            if (-not $created.id -or @($projects | Where-Object { $_.id -ceq $created.id -and $_.name -ceq $projectName }).Count -ne 1) { throw 'Upgraded workspace failed to store its project.' }
+            $body = @{action='keep'; engagement=$scope[0].id; project=$created.id; meeting='2026-11-20_090000_000'; kind='task'; text='Review the sample'; quote='Check the sample before release.'} | ConvertTo-Json
+            $record = Invoke-RestMethod -Method Post -Uri $uri -Headers $headers -ContentType 'application/json' -Body $body
+            $body = @{action='project'; engagement=$scope[0].id; project=$created.id} | ConvertTo-Json
+            $saved = Invoke-RestMethod -Method Post -Uri $uri -Headers $headers -ContentType 'application/json' -Body $body
+            if (-not $record.id -or $saved.records[0].id -cne $record.id -or $saved.records[0].quote -cne 'Check the sample before release.') { throw 'Original meeting evidence missing from the project.' }
+        }
         Write-Host "Synthetic meeting, settings and model cache verified in $([IO.Path]::GetFileName($executable))."
     } finally {
         $app.Refresh()
@@ -58,14 +84,14 @@ function Install-PreviousRelease {
     if (Test-Path -LiteralPath $pointer) { throw 'Runner profile already has a data pointer.' }
     $oldSetup = Join-Path $dir 'previous-setup.exe'
     $oldPackage = Join-Path $dir 'previous.7z'
-    Invoke-WebRequest -Uri 'https://github.com/toshodin/dendrokeeper-releases/releases/download/v0.1.0/DendroKeeper-0.1.0.0-win-x64-setup.exe' -OutFile $oldSetup -TimeoutSec 180
+    Invoke-WebRequest -Uri $oldSetupUrl -OutFile $oldSetup -TimeoutSec 180
     if ((Get-FileHash -Algorithm SHA256 $oldSetup).Hash -ine $oldSetupHash) { throw 'Previous setup checksum mismatch.' }
-    Invoke-WebRequest -Uri 'https://dendro-keeper.com/downloads/v0.1.0/DendroKeeper-0.1.0.0-win-x64.7z' -OutFile $oldPackage -TimeoutSec 900
+    Invoke-WebRequest -Uri $oldPackageUrl -OutFile $oldPackage -TimeoutSec 900
     if ((Get-FileHash -Algorithm SHA256 $oldPackage).Hash -ine $oldPackageHash) { throw 'Previous package checksum mismatch.' }
     if ((Invoke-Setup $oldSetup $oldPackage) -ne 0) { throw 'Previous setup failed.' }
     Remove-Item -LiteralPath $oldSetup
     if (Test-Path -LiteralPath $oldPackage) { Remove-Item -LiteralPath $oldPackage }
-    $link = @(Get-ChildItem -LiteralPath ([Environment]::GetFolderPath('Programs')) -Recurse -File -Filter 'Dendro Keeper.lnk')
+    $link = @(Get-ChildItem -LiteralPath ([Environment]::GetFolderPath('Programs')) -Recurse -File -Filter $oldShortcut)
     if ($link.Count -ne 1) { throw 'Previous shortcut missing or ambiguous.' }
     $script:oldLink = $link[0].FullName
     $script:oldExe = (New-Object -ComObject WScript.Shell).CreateShortcut($script:oldLink).TargetPath
@@ -79,6 +105,7 @@ function Install-PreviousRelease {
     [IO.File]::WriteAllText((Join-Path $syntheticHome 'recordings/2026-11-20_090000_000/meeting.json'), '{"title":"Synthetic upgrade meeting","source":"unsorted"}')
     [IO.File]::WriteAllText((Join-Path $syntheticHome 'recordings/2026-11-20_090000_000/filed.json'), '{"folder":"2026-11-20-synthetic-upgrade-meeting"}')
     [IO.File]::WriteAllText($notePath, 'Synthetic summary')
+    [IO.File]::WriteAllText((Join-Path (Split-Path $notePath) 'transcript.md'), 'Check the sample before release.')
     cmdkey.exe "/generic:$credentialTarget" /user:model-key:local /pass:synthetic-upgrade-test
     if ($LASTEXITCODE -ne 0) { throw 'Could not seed synthetic Windows credential.' }
     $config = @'
