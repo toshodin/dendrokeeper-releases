@@ -66,7 +66,8 @@ function Install-PreviousRelease {
     Remove-Item -LiteralPath $oldSetup, $oldPackage
     $link = @(Get-ChildItem -LiteralPath ([Environment]::GetFolderPath('Programs')) -Recurse -File -Filter 'Dendro Keeper.lnk')
     if ($link.Count -ne 1) { throw 'Previous shortcut missing or ambiguous.' }
-    $script:oldExe = (New-Object -ComObject WScript.Shell).CreateShortcut($link[0].FullName).TargetPath
+    $script:oldLink = $link[0].FullName
+    $script:oldExe = (New-Object -ComObject WScript.Shell).CreateShortcut($script:oldLink).TargetPath
     if ((Get-FileHash -Algorithm SHA256 $script:oldExe).Hash -ine $oldExeHash) { throw 'Previous executable checksum mismatch.' }
     New-Item -ItemType Directory -Force -Path $syntheticHome, $env:MEETING_CAPTURE_FAKE_CONTROL, (Join-Path $syntheticHome 'recordings/2026-11-20_090000_000'), (Join-Path $customNotes 'meetings/2026-11-20-synthetic-upgrade-meeting') | Out-Null
     $env:HF_HOME = Join-Path $dir 'synthetic-models'
@@ -112,8 +113,10 @@ action_log = "synthetic/actions.md"
 function Test-CorruptUpgrade([string] $newSetup) {
     $corrupt = Join-Path $dir 'corrupt.7z'
     [IO.File]::WriteAllText($corrupt, 'synthetic corrupt package')
-    if ((Invoke-Setup $newSetup $corrupt) -eq 0) { throw 'Corrupt package was accepted.' }
+    $exitCode = Invoke-Setup $newSetup $corrupt
+    if ($exitCode -ne 17) { throw "Expected package verification failure 17, got $exitCode." }
     Remove-Item -LiteralPath $corrupt
     if ((Get-FileHash -Algorithm SHA256 $script:oldExe).Hash -ine $oldExeHash) { throw 'Failed upgrade changed the old executable.' }
+    if (-not (Test-Path -LiteralPath $script:oldLink) -or (New-Object -ComObject WScript.Shell).CreateShortcut($script:oldLink).TargetPath -ine $script:oldExe) { throw 'Failed upgrade changed the old shortcut.' }
     Test-PreviousData $script:oldExe
 }
