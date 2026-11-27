@@ -89,7 +89,7 @@ if ((Get-FileHash -Algorithm SHA256 -LiteralPath $exe).Hash -ine $env:EXE_SHA256
 if ($upgrade) {
     $alias = Join-Path (Split-Path $exe) 'DendroKeeper.exe'
     if (-not (Test-Path -LiteralPath $alias -PathType Leaf)) { throw 'Compatibility executable missing.' }
-    Test-PreviousData $exe -workspace:($tag -ceq 'v0.1.2')
+    Test-PreviousData $exe -workspace:($tag -in 'v0.1.2','v0.1.3')
     return
 }
 $env:MEETING_CAPTURE_HOME = Join-Path $dir 'home'
@@ -117,6 +117,10 @@ try {
     if (-not $token) { throw 'App window token missing.' }
     $origin = "http://127.0.0.1:$($uri.Port)"
     $headers = @{ 'X-Token' = $token }
+    if ($tag -ceq 'v0.1.3') {
+        $settings = Invoke-RestMethod -Uri "$origin/api/settings" -Headers $headers -TimeoutSec 10
+        if ($settings.reduce_bleed -isnot [bool] -or $settings.reduce_bleed) { throw 'Echo reduction must start off on a clean installation.' }
+    }
     $licence = Invoke-RestMethod -Uri "$origin/api/licence" -Headers $headers -TimeoutSec 10
     $status = Invoke-RestMethod -Uri "$origin/api/status" -Headers $headers -TimeoutSec 10
     if ($licence.plan -cne 'solo') { throw 'Expected the solo licence plan.' }
