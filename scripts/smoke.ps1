@@ -1,4 +1,4 @@
-$ErrorActionPreference = 'Stop'
+﻿$ErrorActionPreference = 'Stop'
 $mode = $env:RELEASE_MODE
 if ($mode -cnotin @('draft', 'live')) { throw 'Mode must be draft or live.' }
 $tag = $env:RELEASE_TAG
@@ -11,8 +11,9 @@ $release = gh release view $tag --repo toshodin/dendrokeeper-releases --json isD
 if ($LASTEXITCODE -ne 0) { throw 'Could not retrieve the release.' }
 if ($release.tagName -cne $tag -or ($mode -ceq 'draft' -and -not $release.isDraft) -or ($mode -ceq 'live' -and $release.isDraft)) { throw "The tag must identify a $mode release." }
 $assets = @($release.assets)
-$setup = "DendroKeeper-$version-win-x64-setup.exe"
-$base = "DendroKeeper-$version-win-x64.7z"
+$product = if ($tag -ceq 'v0.1.0') { 'DendroKeeper' } else { 'CallToMind' }
+$setup = "$product-$version-win-x64-setup.exe"
+$base = "$product-$version-win-x64.7z"
 $parts = @($assets | Where-Object { $_.name -cmatch ('^' + [regex]::Escape($base) + '\.part\d{3}$') } | Sort-Object name)
 $wholePackage = @($assets | Where-Object { $_.name -ceq $base })
 if ($mode -ceq 'draft' -and ($wholePackage.Count -gt 1 -or ($wholePackage.Count -gt 0 -and $parts.Count -gt 0))) { throw 'Expected one package format.' }
@@ -30,7 +31,8 @@ function Download-Asset([string] $name) {
 if ($mode -ceq 'draft') {
     Download-Asset $setup
 } else {
-    Invoke-WebRequest -Uri 'https://dendro-keeper.com/downloads/windows-setup' -OutFile (Join-Path $dir $setup) -TimeoutSec 300
+    $downloadUrl = if ($tag -ceq 'v0.1.0') { 'https://dendro-keeper.com/downloads/windows-setup' } else { 'https://calltomind.app/downloads/windows-setup' }
+    Invoke-WebRequest -Uri $downloadUrl -OutFile (Join-Path $dir $setup) -TimeoutSec 300
 }
 Download-Asset 'SHA256SUMS.txt'
 $manifest = Get-Content -LiteralPath (Join-Path $dir 'SHA256SUMS.txt')
@@ -40,6 +42,8 @@ function Assert-Manifest([string] $name, [string] $expected) {
 }
 Assert-Manifest $setup $env:SETUP_SHA256
 if ((Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $dir $setup)).Hash -ine $env:SETUP_SHA256) { throw 'Setup checksum mismatch.' }
+$upgrade = $mode -ceq 'draft' -and $tag -cne 'v0.1.0'
+if ($upgrade) { . "$PSScriptRoot/upgrade.ps1"; Install-PreviousRelease }
 $arguments = @('/S')
 if ($mode -ceq 'live') {
     Write-Host 'Running the published setup with its configured package download.'
@@ -64,18 +68,27 @@ if ($mode -ceq 'live') {
 } else {
     Write-Host 'No package parts found. Setup will use its configured download.'
 }
+if ($upgrade) { Test-CorruptUpgrade (Join-Path $dir $setup) }
 Remove-Item Env:GH_TOKEN
 $setupPath = Join-Path $dir $setup
 $installer = Start-Process -FilePath $setupPath -ArgumentList $arguments -Wait -PassThru -WindowStyle Hidden
 if ($installer.ExitCode -ne 0) { throw "Setup failed with exit code $($installer.ExitCode)." }
 $menu = [Environment]::GetFolderPath('Programs')
-$links = @(Get-ChildItem -LiteralPath $menu -Recurse -File -Filter 'Dendro Keeper.lnk')
+$shortcut = if ($tag -ceq 'v0.1.0') { 'Dendro Keeper.lnk' } else { 'Call to Mind.lnk' }
+$links = @(Get-ChildItem -LiteralPath $menu -Recurse -File -Filter $shortcut)
 if ($links.Count -ne 1) { throw "Expected one per-user Start menu shortcut, found $($links.Count)." }
 $shell = New-Object -ComObject WScript.Shell
 $exe = $shell.CreateShortcut($links[0].FullName).TargetPath
-if ([IO.Path]::GetFileName($exe) -ine 'DendroKeeper.exe') { throw 'Unexpected Start menu target.' }
+$expectedExe = if ($tag -ceq 'v0.1.0') { 'DendroKeeper.exe' } else { 'CallToMind.exe' }
+if ([IO.Path]::GetFileName($exe) -ine $expectedExe) { throw 'Unexpected Start menu target.' }
 if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) { throw "Installed executable missing: $exe" }
 if ((Get-FileHash -Algorithm SHA256 -LiteralPath $exe).Hash -ine $env:EXE_SHA256) { throw 'Installed executable checksum mismatch.' }
+if ($upgrade) {
+    $alias = Join-Path (Split-Path $exe) 'DendroKeeper.exe'
+    if (-not (Test-Path -LiteralPath $alias -PathType Leaf)) { throw 'Compatibility executable missing.' }
+    Test-PreviousData $exe
+    return
+}
 $env:MEETING_CAPTURE_HOME = Join-Path $dir 'home'
 $env:MEETING_CAPTURE_FAKE_CONTROL = Join-Path $dir 'control'
 $env:MEETING_CAPTURE_FAKES = '1'
@@ -96,7 +109,7 @@ try {
     $uri = [uri]$address
     if ($uri.Scheme -cne 'http' -or $uri.Host -cne '127.0.0.1') { throw 'App window address is not on loopback.' }
     $page = Invoke-WebRequest -Uri $uri -TimeoutSec 10
-    if ($page.StatusCode -ne 200 -or $page.Content -notmatch 'Dendro Keeper') { throw 'App window did not return the expected page.' }
+    if ($page.StatusCode -ne 200 -or $page.Content -notmatch $(if ($tag -ceq 'v0.1.0') { 'Dendro Keeper' } else { 'Call to Mind' })) { throw 'App window did not return the expected page.' }
     $token = [System.Web.HttpUtility]::ParseQueryString($uri.Query).Get('t')
     if (-not $token) { throw 'App window token missing.' }
     $origin = "http://127.0.0.1:$($uri.Port)"

@@ -1,5 +1,5 @@
-# DendroKeeper for Windows
+# Call to Mind by Dendro Logic
 
-[Download the installer or portable ZIP](https://dendro-keeper.com/#download). The site serves each download as a single file and links to its SHA-256 checksum.
+[Download Call to Mind for Windows](https://calltomind.app). The site provides the installer, portable download and checksums.
 
-This repository stores the release files. Larger downloads are stored in parts to fit GitHub's file size limit.
+This repository stores release files. Larger downloads are stored in parts to fit GitHub's file size limit.
